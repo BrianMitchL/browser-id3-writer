@@ -14,6 +14,7 @@ module.exports = {
     },
     "extends": "eslint:recommended",
     "rules": {
+        "no-console": 1,
         "indent": 0,
         "linebreak-style": 0,
         "quotes": [1, "single"],
