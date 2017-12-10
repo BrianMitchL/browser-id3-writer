@@ -57,6 +57,22 @@ export function getPictureFrameSize(pictureSize, mimeTypeSize, descriptionSize, 
         pictureSize;
 }
 
+export function getChapterFrameSize(elementIdSize, subFrames) {
+    const headerSize = 10;
+    const encodingSize = 1;
+    const bomSize = 2;
+    const frameUtf16Size = elementIdSize * 2;
+    const timeOffsetSize = 16;
+    const subFrameSize = subFrames.reduce((accumulator, current) => accumulator + current.size, 0);
+
+    return headerSize +
+        encodingSize +
+        bomSize +
+        frameUtf16Size +
+        timeOffsetSize +
+        subFrameSize;
+}
+
 export function getCommentFrameSize(descriptionSize, textSize) {
     const headerSize = 10;
     const encodingSize = 1;

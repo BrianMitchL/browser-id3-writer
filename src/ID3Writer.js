@@ -6,6 +6,7 @@ import {
     getStringFrameSize,
     getPictureFrameSize,
     getLyricsFrameSize,
+    getChapterFrameSize,
     getCommentFrameSize,
     getUserStringFrameSize,
     getUrlLinkFrameSize
@@ -63,6 +64,40 @@ export default class ID3Writer {
             value: lyricsString,
             description: descriptionString,
             size: getLyricsFrameSize(descriptionString.length, lyricsString.length)
+        });
+    }
+
+    _setChapterFrame(elementId, startTime, endTime, title = '', description = '') {
+        const elementIdString = elementId.toString();
+        const subFrames = [];
+
+        const titleString = title.toString();
+        const descriptionString = description.toString();
+
+        if (titleString.length > 0) {
+            subFrames.push({
+                name: 'TIT2',
+                value: titleString,
+                size: getStringFrameSize(titleString.length)
+            });
+        }
+        if (descriptionString.length > 0) {
+            subFrames.push({
+                name: 'TIT3',
+                value: descriptionString,
+                size: getStringFrameSize(descriptionString.length)
+            });
+        }
+
+        this.frames.push({
+            name: 'CHAP',
+            elementId: elementIdString,
+            startTime,
+            endTime,
+            startOffset: -1, // use time offset (breaks timing in VBR encoded files)
+            endOffset: -1, // use time offset (breaks timing in VBR encoded files)
+            subFrames,
+            size: getChapterFrameSize(elementId.length, subFrames)
         });
     }
 
@@ -189,6 +224,20 @@ export default class ID3Writer {
                 this._setUrlLinkFrame(frameName, frameValue);
                 break;
             }
+            case 'CHAP': { // Chapter
+                if (typeof frameValue !== 'object' || !('elementId' in frameValue) || !('startTime' in frameValue) || !('endTime' in frameValue)) {
+                    throw new Error('CHAP frame value should be an object with keys elementId, startTime, and endTime');
+                }
+                if (typeof frameValue.startTime !== 'number' && frameValue.startTime < 0) {
+                    throw new Error('Invalid CHAP frame start time');
+                }
+                if (typeof frameValue.endTime !== 'number' && frameValue.endTime < 0) {
+                    throw new Error('Invalid CHAP frame end time');
+                }
+                // title and description are optional
+                this._setChapterFrame(frameValue.elementId, frameValue.startTime, frameValue.endTime, frameValue.title, frameValue.description);
+                break;
+            }
             case 'COMM': { // Comments
                 if (typeof frameValue !== 'object' || !('description' in frameValue) || !('text' in frameValue)) {
                     throw new Error('COMM frame value should be an object with keys description and text');
@@ -244,7 +293,7 @@ export default class ID3Writer {
         bufferWriter.set(writeBytes, offset);
         offset += writeBytes.length;
 
-        this.frames.forEach((frame) => {
+        function writeFrameHeader(frame) {
             writeBytes = encodeWindows1252(frame.name); // frame name
             bufferWriter.set(writeBytes, offset);
             offset += writeBytes.length;
@@ -254,6 +303,10 @@ export default class ID3Writer {
             offset += writeBytes.length;
 
             offset += 2; // flags
+        }
+
+        this.frames.forEach((frame) => {
+            writeFrameHeader(frame);
 
             switch (frame.name) {
                 case 'WCOM':
@@ -313,6 +366,40 @@ export default class ID3Writer {
                     writeBytes = encodeUtf16le(frame.value); // frame value
                     bufferWriter.set(writeBytes, offset);
                     offset += writeBytes.length;
+                    break;
+                }
+                case 'CHAP': {
+                    writeBytes = encodeUtf16le(`${frame.elementId}\0`); // chapter element id
+                    bufferWriter.set(writeBytes, offset);
+                    offset += writeBytes.length;
+
+                    writeBytes = uint32ToUint8Array(frame.startTime); // chapter millisecond offset from start
+                    bufferWriter.set(writeBytes, offset);
+                    offset += writeBytes.length;
+
+                    writeBytes = uint32ToUint8Array(frame.endTime); // chapter millisecond offset from start
+                    bufferWriter.set(writeBytes, offset);
+                    offset += writeBytes.length;
+
+                    writeBytes = uint32ToUint8Array(frame.startOffset); // chapter zero based byte offset from start
+                    bufferWriter.set(writeBytes, offset);
+                    offset += writeBytes.length;
+
+                    writeBytes = uint32ToUint8Array(frame.endOffset); // chapter zero based byte offset from start
+                    bufferWriter.set(writeBytes, offset);
+                    offset += writeBytes.length;
+
+                    frame.subFrames.forEach(subFrame => { // TIT2 or TIT3
+                        writeFrameHeader(subFrame);
+
+                        writeBytes = [1].concat(BOM); // encoding, BOM
+                        bufferWriter.set(writeBytes, offset);
+                        offset += writeBytes.length;
+
+                        writeBytes = encodeUtf16le(subFrame.value); // frame value
+                        bufferWriter.set(writeBytes, offset);
+                        offset += writeBytes.length;
+                    });
                     break;
                 }
                 case 'TBPM':
